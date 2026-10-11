@@ -3,7 +3,10 @@ import assert from 'node:assert/strict'
 import { getRepos, _resetLocalDb } from '../lib/db/index.ts'
 import { LocalAuth } from '../lib/auth/core.ts'
 import { authorize } from '../lib/services/authorization.ts'
-import { createOrganizationForUser, createEmployee, createTask, listEmployees, getEmployee } from '../lib/services/tenant.ts'
+import {
+  createOrganizationForUser, createEmployee, createTask, listEmployees, getEmployee,
+  cancelTask as cancelTaskService,
+} from '../lib/services/tenant.ts'
 import { Worker } from '../lib/queue/worker.ts'
 import { getModelGateway, _resetGateway } from '../lib/gateway/gateway.ts'
 
@@ -75,4 +78,70 @@ test('worker is idempotent: claiming the same task twice does not double-execute
 
   const done = await repos.getTask(task.id)
   assert.equal(done?.status, 'completed')
+})
+
+test('cancelling a queued task reaches a terminal state and is never executed', async () => {
+  const { repos, ctx } = await bootstrap()
+  const emp = await createEmployee(repos, ctx, { template: 'marketing', name: 'Marketer' })
+  const task = await createTask(repos, ctx, { employeeId: emp.id, message: 'Draft next month’s social calendar.' })
+
+  await cancelTaskService(repos, ctx, task.id)
+
+  // Terminal immediately: a queued row left as 'queued' would be skipped by
+  // claimNextQueued (cancelled = false) and orphaned forever.
+  const settled = await repos.getTask(task.id)
+  assert.equal(settled?.status, 'cancelled')
+  assert.equal(settled?.cancelled, true)
+  assert.ok(settled?.finishedAt, 'cancelled task must record finished_at')
+
+  // No worker may pick it up afterwards.
+  const worker = new Worker(repos)
+  assert.equal(await worker.tick(), false)
+  assert.equal((await repos.getTask(task.id))?.status, 'cancelled')
+})
+
+test('a completed task cannot be cancelled', async () => {
+  const { repos, ctx } = await bootstrap()
+  const emp = await createEmployee(repos, ctx, { template: 'operations', name: 'Ops' })
+  const task = await createTask(repos, ctx, { employeeId: emp.id, message: 'Write the weekly ops summary.' })
+  await new Worker(repos).tick()
+
+  await assert.rejects(() => cancelTaskService(repos, ctx, task.id), /already finished/)
+  assert.equal((await repos.getTask(task.id))?.status, 'completed')
+})
+
+test('a cancel that lands mid-call is never overwritten by a completed result', async () => {
+  const { repos, ctx } = await bootstrap()
+  const emp = await createEmployee(repos, ctx, { template: 'research', name: 'Researcher' })
+  const task = await createTask(repos, ctx, { employeeId: emp.id, message: 'Prepare the quarterly board update.' })
+
+  let releaseCall: () => void = () => {}
+  const inFlight = new Promise<void>((r) => { releaseCall = r })
+  let markEntered: () => void = () => {}
+  const entered = new Promise<void>((r) => { markEntered = r })
+
+  const slowGateway = {
+    complete: async (req: any) => {
+      markEntered()
+      await inFlight
+      return {
+        content: 'A deliverable that must never be recorded as completed work.',
+        toolCalls: [], tokensIn: 20, tokensOut: 20, costUsd: 0.0005,
+        model: req.model, provider: 'test',
+      }
+    },
+  }
+
+  const worker = new Worker(repos, slowGateway as any)
+  const ticking = worker.tick()
+  await entered
+
+  // Cancelled while the model call is still in flight.
+  await cancelTaskService(repos, ctx, task.id)
+  releaseCall()
+  await ticking
+
+  const settled = await repos.getTask(task.id)
+  assert.equal(settled?.status, 'cancelled')
+  assert.equal(settled?.output, null, 'cancelled work must not persist a deliverable')
 })

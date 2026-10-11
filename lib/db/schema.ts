@@ -12,14 +12,22 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 
-create type org_plan as enum ('free','starter','pro','business');
+-- Enum types cannot use IF NOT EXISTS, so creation is guarded: this script must
+-- be safe to re-run against an existing database (e.g. a persistent PGLITE_DIR).
+do $$ begin
+  create type org_plan as enum ('free','starter','pro','business');
+exception when duplicate_object then null; end $$;
 create table if not exists public.organizations (
   id uuid primary key default gen_random_uuid(), name text not null, slug text not null unique,
   plan org_plan not null default 'free', spend_limit_usd numeric(12,2) not null default 10,
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 
-create type member_role as enum ('owner','admin','member');
+-- Enum types cannot use IF NOT EXISTS, so creation is guarded: this script must
+-- be safe to re-run against an existing database (e.g. a persistent PGLITE_DIR).
+do $$ begin
+  create type member_role as enum ('owner','admin','member');
+exception when duplicate_object then null; end $$;
 create table if not exists public.organization_members (
   organization_id uuid not null references public.organizations(id) on delete cascade,
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -27,7 +35,11 @@ create table if not exists public.organization_members (
   primary key (organization_id, user_id)
 );
 
-create type sub_status as enum ('trialing','active','past_due','canceled','expired');
+-- Enum types cannot use IF NOT EXISTS, so creation is guarded: this script must
+-- be safe to re-run against an existing database (e.g. a persistent PGLITE_DIR).
+do $$ begin
+  create type sub_status as enum ('trialing','active','past_due','canceled','expired');
+exception when duplicate_object then null; end $$;
 create table if not exists public.subscriptions (
   id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade,
   plan org_plan not null, status sub_status not null default 'trialing', provider text not null default 'paystack',
@@ -55,7 +67,11 @@ create table if not exists public.conversations (
 create index if not exists conversations_org_idx on public.conversations(organization_id);
 create index if not exists conversations_employee_idx on public.conversations(employee_id);
 
-create type msg_role as enum ('system','user','assistant','tool');
+-- Enum types cannot use IF NOT EXISTS, so creation is guarded: this script must
+-- be safe to re-run against an existing database (e.g. a persistent PGLITE_DIR).
+do $$ begin
+  create type msg_role as enum ('system','user','assistant','tool');
+exception when duplicate_object then null; end $$;
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(), conversation_id uuid not null references public.conversations(id) on delete cascade,
   organization_id uuid not null references public.organizations(id) on delete cascade, role msg_role not null,
@@ -64,7 +80,11 @@ create table if not exists public.messages (
 create index if not exists messages_conversation_idx on public.messages(conversation_id, created_at);
 create index if not exists messages_org_idx on public.messages(organization_id);
 
-create type task_status as enum ('queued','running','completed','failed','cancelled');
+-- Enum types cannot use IF NOT EXISTS, so creation is guarded: this script must
+-- be safe to re-run against an existing database (e.g. a persistent PGLITE_DIR).
+do $$ begin
+  create type task_status as enum ('queued','running','completed','failed','cancelled');
+exception when duplicate_object then null; end $$;
 create table if not exists public.tasks (
   id uuid primary key default gen_random_uuid(), organization_id uuid not null references public.organizations(id) on delete cascade,
   employee_id uuid references public.ai_employees(id) on delete set null, conversation_id uuid references public.conversations(id) on delete set null,

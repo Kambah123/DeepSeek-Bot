@@ -330,9 +330,14 @@ export class LocalRepos implements Repos {
     return rows.map(toTask)
   }
   async cancelTask(orgId: string, id: string) {
+    // A cancelled task must reach a terminal state immediately: claimNextQueued
+    // skips cancelled rows, so leaving a queued task as 'queued' would orphan it
+    // forever. A running task is finalized here too; the worker re-checks the
+    // flag before it persists a result, so it can never overwrite this.
     await this.q(
-      `update tasks set cancelled=true, status=case when status='running' then 'cancelled' else status end,
-       finished_at=coalesce(finished_at, now()), updated_at=now() where organization_id=$1 and id=$2 and status in ('queued','running')`,
+      `update tasks set cancelled=true, status='cancelled',
+       finished_at=coalesce(finished_at, now()), updated_at=now()
+       where organization_id=$1 and id=$2 and status in ('queued','running')`,
       [orgId, id],
     )
   }
@@ -458,9 +463,16 @@ function localDb(): Promise<PGlite> {
       // In-memory by default; PGLITE_DIR persists to disk when set.
       const dir = process.env.PGLITE_DIR && process.env.PGLITE_DIR.length > 0 ? process.env.PGLITE_DIR : undefined
       const pg = new PGlite(dir)
+      // INIT_SQL is written to be safe to re-run, so an existing on-disk
+      // database (PGLITE_DIR) is reused rather than re-created.
       await pg.exec(INIT_SQL)
       return pg
-    })()
+    })().catch((err) => {
+      // Never cache a failed initialization: a transient failure (e.g. a lock
+      // held by a dying process) must not brick every later request.
+      g.__localDb = undefined
+      throw err
+    })
   }
   return g.__localDb
 }

@@ -38,3 +38,25 @@ test('local store: schema initializes and basic CRUD + org scoping works', async
   assert.equal(sum.tokensIn, 10)
   assert.equal(sum.costUsd, 0.01)
 })
+
+test('schema initialization is idempotent: re-running INIT_SQL on an existing database is safe', async () => {
+  const { PGlite } = await import('@electric-sql/pglite')
+  const { INIT_SQL } = await import('../lib/db/schema.ts')
+
+  // Mirrors a server restart against a persistent PGLITE_DIR: without guarded
+  // enum creation this throws `type "org_plan" already exists` and every route
+  // 500s, so this stays a regression test.
+  const pg = new PGlite()
+  await pg.exec(INIT_SQL)
+  await pg.exec(INIT_SQL)
+  await pg.exec(INIT_SQL)
+
+  const types = await pg.query<{ typname: string }>(
+    `select typname from pg_type where typname in ('org_plan','member_role','sub_status','msg_role','task_status')`,
+  )
+  assert.equal(types.rows.length, 5)
+  const tables = await pg.query<{ count: number }>(
+    `select count(*)::int as count from information_schema.tables where table_schema = 'public'`,
+  )
+  assert.ok(tables.rows[0].count >= 11, `expected the full schema, got ${tables.rows[0].count} tables`)
+})

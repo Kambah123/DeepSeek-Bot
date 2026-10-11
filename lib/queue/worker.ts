@@ -112,6 +112,16 @@ export class Worker {
       throw new Error('TASK_CANCELLED')
     }
 
+    // A cancellation may have landed while the final model call was in flight.
+    // Re-check before persisting so completed work can never overwrite a cancel.
+    const latest = await this.repos.getTask(task.id)
+    if (!latest || latest.cancelled) {
+      if (latest) {
+        await this.repos.updateTask(task.id, { status: 'cancelled', finishedAt: new Date().toISOString() })
+      }
+      return
+    }
+
     // Persist the REAL assistant message + task result.
     await this.repos.addMessage({ conversationId, orgId: task.organizationId, role: 'assistant', content: turn.content })
 
