@@ -8,3 +8,12 @@ node_modules/
 .dsh-test*/
 .dsh-home/
 /shots/
+
+# --- AI Employees SaaS (Next.js app, built from the DeepSeek-Bot design) ---
+.next/
+tsconfig.tsbuildinfo
+.env*.local
+# Local (dev/CI) private document storage.
+.storage/
+# Local pglite data directory when PGLITE_DIR is set.
+.pglite/
