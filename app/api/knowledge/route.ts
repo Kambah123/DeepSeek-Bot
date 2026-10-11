@@ -44,7 +44,12 @@ export async function POST(req: NextRequest) {
     const doc = await createDocumentRecord(repos, ctx, {
       name: file.name, contentType: file.type, sizeBytes: file.size, storagePath,
     })
-    if (extractedText) await repos.updateDocument(ctx.organizationId, doc.id, { extractedText, status: 'processed' })
+    if (extractedText) {
+      await repos.updateDocument(ctx.organizationId, doc.id, { extractedText, status: 'processed' })
+      // Reflect the processed state (extracted text + status) in the response.
+      const processed = await repos.getDocument(ctx.organizationId, doc.id)
+      return json({ document: processed ?? doc }, 201)
+    }
     return json({ document: doc }, 201)
   } catch (err) {
     return errorResponse(err)
