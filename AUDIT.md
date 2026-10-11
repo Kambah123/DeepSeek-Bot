@@ -117,6 +117,39 @@ concurrent tenants, isolate execution by organization or job"), the decision is:
 - **P8 — Admin, security tests, reliability, docs.** `tests/` for the highest-risk
   boundaries; README with setup/env/migrations/worker/testing/deploy.
 
+### Phase status (updated after the dashboard phase)
+
+| Phase | Status | Evidence |
+|---|---|---|
+| P1 audit & decisions | ✅ | this document |
+| P2 schema, auth, orgs, RLS | ✅ | `supabase/migrations/0001_init.sql`, `0002_rls.sql`; `tests/db.test.ts`, `tests/rls.test.ts` (real pglite + real policies) |
+| P3 worker, queue, one employee | ✅ | `lib/queue/worker.ts`, `tests/pipeline.test.ts` (claim → run → persist; retries; cancellation) |
+| P4 templates, conversations, tasks | ✅ | `lib/agents/templates.ts`, `app/api/tasks/**` |
+| P5 gateway, usage, quotas | ✅ | `lib/gateway/gateway.ts`, `lib/quota/quota.ts`, `tests/quota.test.ts`, `tests/gateway.test.ts` |
+| P6 knowledge + scoped memory | ✅ | `app/api/knowledge/**`, `lib/storage`, `tests/security.test.ts` (traversal + cross-tenant) |
+| P7 billing (Paystack) | ✅ code-complete, unexercised | fails closed when unconfigured; HMAC-verified idempotent webhook; `tests/billing.test.ts` |
+| P8 security tests, docs, UI | ✅ | **`app/dashboard/**` authenticated UI** (overview, employees, employee detail/edit, tasks, task detail, knowledge, usage/plans) |
+
+### Verified in this phase (2026-10-11)
+
+`npx tsc --noEmit` clean · `npm test` **23/23** · `npm run build` passes (28 routes).
+Live HTTP run against `next dev` with the local (pglite) driver and the **inline
+worker** draining the queue in-process:
+
+- signup → `POST /api/auth/signup` 201 + httpOnly cookies → `/dashboard` 200 (was 404 — this was the stopping point).
+- create employee → `/dashboard/employees/[id]` 200 → assign task → **inline worker completed it in ~1 s** → deliverable rendered as Markdown on `/dashboard/tasks/[id]` (385 in / 225 out tokens, $0.000351).
+- knowledge upload → processed → page shows "In context" → download returns the file; employee context grew (tokensIn 385 → 421), proving the document reached the model prompt.
+- plan enforcement surfaced in the UI: 2nd employee on the free plan → 429 + "Employee limit reached"; pausing an employee disables the composer.
+- cross-tenant: outsider loading another org's employee page → **404**; org switch → 403.
+- **Two real bugs found by this run and fixed** (both regression-tested):
+  1. cancelling a *queued* task left it stuck in `queued` forever (the claim query skips `cancelled = true`), so the task page polled indefinitely — `LocalRepos.cancelTask` now terminates immediately (matching Supabase) and the worker re-checks the flag before persisting a result. `tests/pipeline.test.ts` ×3.
+  2. re-running `INIT_SQL` against a persistent `PGLITE_DIR` threw `type "org_plan" already exists`, so **every route 500'd after a restart**; enum creation is now guarded and init failure is no longer cached. `tests/db.test.ts`.
+
+Not yet exercised for real: Paystack checkout/webhooks (no keys, `BILLING_ENABLED=false`),
+the Supabase driver (no Supabase instance available here), and a live model provider
+(the mock provider produced these deliverables). The Docker-free local path is
+fully exercised.
+
 ## 8. Honest status of this audit
 
 - ✅ Inspected repo, manifests, lockfile, README, license, NOTICE.
@@ -126,4 +159,4 @@ concurrent tenants, isolate execution by organization or job"), the decision is:
 - ✅ Ran `git status`/`log`; the upstream `npm test` requires a DSH checkout we do
   not have, so **we did not run the upstream unit suite** (it would fail on missing
   `@deepseek-ai/*`). We instead build and test our own suite.
-- ⏳ Build/test of the new SaaS to follow per phase.
+- ✅ Build/test of the new SaaS: see "Phase status (updated after the dashboard phase)" and "Verified in this phase" above (23/23 tests, production build, live HTTP run).
