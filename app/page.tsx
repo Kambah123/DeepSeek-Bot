@@ -1,6 +1,12 @@
 import Link from 'next/link'
+import { getServerSession } from '@/lib/auth/next'
 
-export default function LandingPage() {
+export const dynamic = 'force-dynamic'
+
+export default async function LandingPage() {
+  // Signed-in visitors get a direct route back into their workspace.
+  const session = await getServerSession()
+
   return (
     <div className="min-h-screen bg-white">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
@@ -10,8 +16,14 @@ export default function LandingPage() {
         </div>
         <nav className="flex items-center gap-4 text-sm">
           <Link href="/pricing" className="text-ink-600 hover:text-ink-900">Pricing</Link>
-          <Link href="/login" className="text-ink-600 hover:text-ink-900">Sign in</Link>
-          <Link href="/signup" className="btn-primary">Get started</Link>
+          {session ? (
+            <Link href="/dashboard" className="btn-primary">Open dashboard</Link>
+          ) : (
+            <>
+              <Link href="/login" className="text-ink-600 hover:text-ink-900">Sign in</Link>
+              <Link href="/signup" className="btn-primary">Get started</Link>
+            </>
+          )}
         </nav>
       </header>
 
@@ -26,7 +38,9 @@ export default function LandingPage() {
             review completed work — all billed per plan with clear usage limits. No model keys required.
           </p>
           <div className="mt-8 flex items-center justify-center gap-3">
-            <Link href="/signup" className="btn-primary px-6 py-3 text-base">Create your workspace</Link>
+            <Link href={session ? '/dashboard' : '/signup'} className="btn-primary px-6 py-3 text-base">
+              {session ? 'Open your dashboard' : 'Create your workspace'}
+            </Link>
             <Link href="/pricing" className="btn-secondary px-6 py-3 text-base">View pricing</Link>
           </div>
         </section>

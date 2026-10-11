@@ -50,6 +50,15 @@ export const config = {
     maxDurationMs: Number(env('TASK_MAX_DURATION_MS') ?? 600000),
     maxToolCalls: Number(env('TASK_MAX_TOOL_CALLS') ?? 30),
     pollMs: Number(env('WORKER_POLL_MS') ?? 2000),
+    /**
+     * Run the queue worker inside the web server process. Needed for the local
+     * (pglite) driver, whose embedded database cannot be shared with a separate
+     * worker process. Default: on for local, off for Supabase (use `npm run
+     * worker` there).
+     */
+    inline: env('WORKER_INLINE') === undefined
+      ? (env('DATABASE_DRIVER') ?? 'local') === 'local'
+      : env('WORKER_INLINE') === 'true',
   },
 
   billing: {

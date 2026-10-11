@@ -5,6 +5,9 @@ const nextConfig = {
   // imported from server-side code (lib/db, route handlers, the worker).
   experimental: {
     serverComponentsExternalPackages: ['@electric-sql/pglite'],
+    // Enables instrumentation.ts (Next 14 requires the flag). Used to start the
+    // in-process queue worker for the local pglite driver.
+    instrumentationHook: true,
   },
   // Keep server secrets out of the client bundle. Anything not prefixed
   // NEXT_PUBLIC_ is server-only by default; this is a belt-and-braces guard.
